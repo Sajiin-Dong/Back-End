@@ -1,8 +1,10 @@
 require('dotenv').config();
 
 const express = require('express');
-const loadModel = require("./services/loadModel");
+const {loadModel} = require("./services/loadModel");
+const tf = require('@tensorflow/tfjs');
 const InputError = require('./exceptions/InputError');
+
 
 (async () => {
   const app = express();
@@ -31,27 +33,66 @@ const InputError = require('./exceptions/InputError');
     }
   });
 
-  // Route to handle predictions
-  app.post('/predict', async (req, res, next) => {
+  // Endpoint for prediction
+app.post('/predict', async (req, res) => {
     try {
-      const { data, goal, current_weight_kg, days_to_achieve_goal, category } = req.body;
+        // Load model and preprocessor
+        const { model, preprocessor } = await loadModel();
 
-      if (!data || !goal || !current_weight_kg || !days_to_achieve_goal || !category) {
-        throw new InputError('Missing required fields.');
-      }
+        // Assuming req.body contains the necessary input data
+        const { data, goal, current_weight_kg, days_to_achieve_goal } = req.body;
+        const category = data.category || data.Category;
 
-      // Assuming 'data' is an array of objects similar to your input format
-      const recommendations = await app.locals.model.recommend(data, goal, current_weight_kg, days_to_achieve_goal, category);
+        // Prepare the row for prediction
+        const row = {
+            'Caloric Density': data['Caloric Density'],
+            'Protein (g)': data['Protein (g)'],
+            'Carbohydrates (g)': data['Carbohydrates (g)'],
+            'Fats (g)': data['Fats (g)'],
+            'Category': category
+        };
 
-      res.json({
-        status: 'success',
-        data: recommendations
-      });
+
+        // Logic to recommend based on category (Diet or Bulking)
+        let total_calories_to_achieve_goal, daily_caloric_difference;
+
+        if (category === 'Diet') {
+            total_calories_to_achieve_goal = goal * 7700;
+            daily_caloric_difference = -total_calories_to_achieve_goal / days_to_achieve_goal;
+        } else if (category === 'Bulking') {
+            total_calories_to_achieve_goal = goal * 7700;
+            daily_caloric_difference = total_calories_to_achieve_goal / days_to_achieve_goal;
+        } else {
+            return res.status(400).json({ error: 'Invalid category' });
+        }
+
+        // Prepare recommendations based on model predictions
+        const recommendations = [];
+        for (let idx = 0; idx < data.length; idx++) {
+            const row = data[idx];
+
+            // Transform data using preprocessor
+            const transformed = preprocessor.transform([row]);
+
+            // Predict using the model
+            const prediction = model.predict(transformed);
+
+            // Decide based on category and model prediction
+            if ((category === 'Diet' && prediction[0][1] > prediction[0][0]) ||
+                (category === 'Bulking' && prediction[0][0] > prediction[0][1])) {
+                if ((category === 'Diet' && row['Calories (kcal)'] <= daily_caloric_difference) ||
+                    (category === 'Bulking' && row['Calories (kcal)'] >= daily_caloric_difference)) {
+                    recommendations.push(row);
+                }
+            }
+        }
+
+        // Send recommendations as JSON response
+        res.json({ recommendations });
     } catch (error) {
-      next(error);
+        res.status(500).json({ error: error.message });
     }
-  });
-
+});
 
   // Error handling middleware
   app.use((err, req, res, next) => {
