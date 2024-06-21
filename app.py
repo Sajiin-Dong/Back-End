@@ -5,14 +5,11 @@ import tensorflow as tf
 import json
 import joblib
 
+from google.cloud import firestore
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.python.keras.models import load_model
 
 app = Flask(__name__)
-
-
-model = load_model('food_recommendation_model.h5')
-label_encoder = joblib.load('label_encoder.pkl')
 
 # Load datasets
 foods = pd.read_csv('Food.csv')
@@ -38,23 +35,6 @@ def filter_food(height, weight, desired_weight, is_diet, num_choices=50):
     # Filter food data
     filtered_food = foods[(foods['Category'] == category) & (foods['Calories (kcal)'] <= calories_needed)].sample(min(num_choices, len(foods)))
 
-    # Preprocess amount columns
-    filtered_food['Amount for Diet (g/mL)'] = filtered_food['Amount for Diet (g/mL)'].apply(preprocess_amount)
-    filtered_food['Amount for Bulking (g/mL)'] = filtered_food['Amount for Bulking (g/mL)'].apply(preprocess_amount)
-
-    # Create feature for diet or bulking
-    filtered_food['Is_Diet'] = filtered_food['Amount for Diet (g/mL)'].notnull().astype(int)
-    filtered_food['Is_Bulking'] = filtered_food['Amount for Bulking (g/mL)'].notnull().astype(int)
-
-    # Input features for model prediction
-    X_food = filtered_food[['Is_Diet', 'Is_Bulking', 'Calories (kcal)', 'Protein (g)', 'Carbohydrates (g)', 'Fats (g)']]
-
-    # Predict using the model
-    predictions = model.predict(X_food)
-    predicted_labels = label_encoder.inverse_transform(np.argmax(predictions, axis=1))
-
-    # Add predicted labels to filtered_food dataframe
-    filtered_food['Predicted_Category'] = predicted_labels
 
     # Format output as required
     formatted_food = []
@@ -68,7 +48,7 @@ def filter_food(height, weight, desired_weight, is_diet, num_choices=50):
             "Protein (g)": row['Protein (g)'],
             "Carbohydrates (g)": row['Carbohydrates (g)'],
             "Fats (g)": row['Fats (g)'],
-            "Predicted Category": row['Predicted_Category']
+            "Predicted Category": row['Predicted_Category'],
         }
         formatted_food.append(formatted_item)
 
@@ -87,6 +67,7 @@ def filter_beverages(height, weight, desired_weight, is_diet, num_choices=50):
     # Filter beverage data
     filtered_beverages = beverages[(beverages['Category'] == category) & (beverages['Calories (kcal)'] <= calories_needed)].sample(min(num_choices, len(beverages)))
 
+
     # Format output as required
     formatted_beverages = []
     for _, row in filtered_beverages.iterrows():
@@ -103,6 +84,15 @@ def filter_beverages(height, weight, desired_weight, is_diet, num_choices=50):
 
     return formatted_beverages
 
+
+db = firestore.Client()
+
+# Function to store data in Firestore
+def store_data(collection_name, data):
+    doc_ref = db.collection(collection_name).document()
+    doc_ref.set(data)
+    print(f'Data stored in Firestore: {collection_name}/{doc_ref.id}')
+
 # Define route for food recommendations
 @app.route('/food_recommendations', methods=['POST'])
 def food_recommendations():
@@ -114,6 +104,8 @@ def food_recommendations():
 
     filtered_food = filter_food(height, weight, desired_weight, is_diet)
     
+    store_data('food_recommendations', {'recommendations': filtered_food})
+
     # JSON response
     return jsonify(filtered_food)
 
@@ -128,6 +120,7 @@ def beverage_recommendations():
 
     filtered_beverages = filter_beverages(height, weight, desired_weight, is_diet)
     
+    store_data('beverage_recommendations', {'recommendations': filtered_beverages})    
     # JSON response
     return jsonify(filtered_beverages)
 
