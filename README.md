@@ -9,6 +9,6 @@ Endpoint [Method:POST]:
 {
     "height": 175,
     "weight": 60,
-    "desired_weight": 55, //if diet must be lower than weight, if bulking must be higher than weight
-    "is_diet": true  //true = Diet, false = Bulking
+    "desired_weight": 55, #if diet must be lower than weight, if bulking must be higher than weight
+    "is_diet": true  #true = Diet, false = Bulking
 }
