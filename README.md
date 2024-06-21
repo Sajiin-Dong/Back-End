@@ -5,6 +5,7 @@ Endpoint [Method:POST]:
 - Food endpoint: http://35.219.56.107:8080/food_recommendations
 
 - Expected input:
+```json
 {
     "height": 175,
     "weight": 60,
